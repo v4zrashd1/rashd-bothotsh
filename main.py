@@ -165,6 +165,32 @@ async def register_post(request: Request, username: str = Form(...), password: s
         
     return {"status": "success", "approval_required": not auto_approve}
 
+class TokenResetRequest(BaseModel):
+    token: str
+    new_password: str
+
+@app.post("/api/recover")
+async def recover_admin(req: TokenResetRequest):
+    """Reset the admin password using a Telegram bot token hosted on this panel."""
+    from manager import get_telegram_bot_info
+    info = get_telegram_bot_info(req.token)
+    if not info:
+        raise HTTPException(status_code=403, detail="Invalid Telegram token")
+    bot_username = info.get("username", "")
+    all_bots = db.get_all_bots()
+    match = None
+    for b in all_bots:
+        stored = b.get("bot_username") or b.get("username") or ""
+        if stored and stored.lstrip("@").lower() == bot_username.lower():
+            match = b
+            break
+    if not match:
+        raise HTTPException(status_code=403, detail="This bot is not hosted on this panel")
+    ok = db.update_admin_password("admin", req.new_password)
+    if not ok:
+        raise HTTPException(status_code=500, detail="Password update failed")
+    return {"status": "success", "bot": "@" + bot_username}
+
 @app.get("/logout")
 async def logout(session_id: Optional[str] = Cookie(None)):
     if session_id in active_sessions:
